@@ -1,9 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import Layout from './components/Layout';
 import RatingScale from './components/RatingScale';
-import { EvaluationState, RatingValue, AggregatedStats } from './types';
-import { EVENT_DETAILS, GENERAL_QUESTIONS, SESSION_QUESTIONS, SESSIONS, POSITIONS } from './constants';
-import { ArrowRight, Check, User, MessageSquare, ClipboardCheck, ArrowLeft, BookOpen, Loader2, Lock, BarChart3, PieChart, LogOut, Download } from 'lucide-react';
+import { EvaluationState, RatingValue, AggregatedStats, Question } from './types';
+import { 
+  EVENT_DETAILS, 
+  PROGRAM_QUESTIONS, 
+  VENUE_QUESTIONS, 
+  MEAL_QUESTIONS, 
+  SESSION_QUESTIONS, 
+  SESSIONS, 
+  POSITIONS 
+} from './constants';
+import { ArrowRight, Check, User, MessageSquare, ClipboardCheck, ArrowLeft, BookOpen, Loader2, Lock, BarChart3, PieChart, LogOut, Download, Utensils, MapPin, Calendar, Star } from 'lucide-react';
 import { supabase } from './supabaseClient';
 
 const INITIAL_STATE: EvaluationState = {
@@ -21,6 +29,8 @@ const INITIAL_STATE: EvaluationState = {
     improvements: ''
   }
 };
+
+const ALL_GENERAL_QUESTIONS = [...PROGRAM_QUESTIONS, ...VENUE_QUESTIONS, ...MEAL_QUESTIONS];
 
 const App: React.FC = () => {
   // Steps: 0=Welcome, 1-4=Form, 5=Success, -1=Login, -2=Dashboard
@@ -77,7 +87,7 @@ const App: React.FC = () => {
   };
 
   const isGeneralValid = () => {
-    return GENERAL_QUESTIONS.every(q => formData.generalRatings[q.id] !== undefined);
+    return ALL_GENERAL_QUESTIONS.every(q => formData.generalRatings[q.id] !== undefined);
   };
 
   // Filter sessions based on selected day
@@ -154,6 +164,8 @@ const App: React.FC = () => {
   const processStats = (data: any[]) => {
       const newStats: AggregatedStats = {
           totalRespondents: data.length,
+          dailyRespondents: { 1: 0, 2: 0, 3: 0 },
+          overallRating: 0,
           sexDistribution: {},
           positionDistribution: {},
           generalRatings: {},
@@ -161,8 +173,12 @@ const App: React.FC = () => {
           comments: { strengths: [], improvements: [] }
       };
 
+      // Used for Overall Rating Calculation (Grand Mean)
+      let grandSum = 0;
+      let grandCount = 0;
+
       // Initialize General Ratings Accumulators
-      GENERAL_QUESTIONS.forEach(q => {
+      ALL_GENERAL_QUESTIONS.forEach(q => {
           newStats.generalRatings[q.id] = { sum: 0, count: 0, avg: 0 };
       });
 
@@ -175,6 +191,12 @@ const App: React.FC = () => {
       });
 
       data.forEach(entry => {
+          // Daily Counters
+          const day = entry.selected_day;
+          if (day && (day === 1 || day === 2 || day === 3)) {
+              newStats.dailyRespondents[day]++;
+          }
+
           // Demographics
           const sex = entry.sex || 'Unspecified';
           newStats.sexDistribution[sex] = (newStats.sexDistribution[sex] || 0) + 1;
@@ -185,9 +207,14 @@ const App: React.FC = () => {
           // General Ratings
           if (entry.general_ratings) {
               Object.entries(entry.general_ratings).forEach(([key, val]) => {
-                  if (newStats.generalRatings[key]) {
-                      newStats.generalRatings[key].sum += Number(val);
+                  const numVal = Number(val);
+                  if (newStats.generalRatings[key] && !isNaN(numVal)) {
+                      newStats.generalRatings[key].sum += numVal;
                       newStats.generalRatings[key].count += 1;
+                      
+                      // Add to Grand Mean
+                      grandSum += numVal;
+                      grandCount += 1;
                   }
               });
           }
@@ -197,9 +224,14 @@ const App: React.FC = () => {
               Object.entries(entry.session_ratings).forEach(([sessionId, sessionData]) => {
                   if (newStats.sessionRatings[sessionId] && typeof sessionData === 'object') {
                       Object.entries(sessionData as Record<string, number>).forEach(([qId, val]) => {
-                          if (newStats.sessionRatings[sessionId][qId]) {
-                              newStats.sessionRatings[sessionId][qId].sum += Number(val);
+                          const numVal = Number(val);
+                          if (newStats.sessionRatings[sessionId][qId] && !isNaN(numVal)) {
+                              newStats.sessionRatings[sessionId][qId].sum += numVal;
                               newStats.sessionRatings[sessionId][qId].count += 1;
+                              
+                              // Add to Grand Mean
+                              grandSum += numVal;
+                              grandCount += 1;
                           }
                       });
                   }
@@ -224,8 +256,40 @@ const App: React.FC = () => {
           });
       });
 
+      // Calculate Overall Rating
+      newStats.overallRating = grandCount > 0 ? grandSum / grandCount : 0;
+
       setStats(newStats);
   };
+
+  const renderAnalysisSection = (title: string, icon: React.ReactNode, questions: Question[]) => (
+    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+        <div className="flex items-center gap-2 mb-6 pb-2 border-b">
+            {icon}
+            <h3 className="font-bold text-slate-800">{title}</h3>
+        </div>
+        <div className="space-y-6">
+            {questions.map(q => {
+                const rating = stats?.generalRatings[q.id] || { sum: 0, count: 0, avg: 0 };
+                const percentage = (rating.avg / 4) * 100;
+                return (
+                    <div key={q.id}>
+                        <div className="flex justify-between items-end mb-1">
+                            <p className="text-sm font-medium text-slate-700">{q.text}</p>
+                            <p className="text-lg font-bold text-slate-900">{rating.avg.toFixed(2)} <span className="text-xs text-slate-400 font-normal">/ 4.00</span></p>
+                        </div>
+                        <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
+                            <div 
+                              className={`h-full ${percentage >= 90 ? 'bg-green-500' : percentage >= 75 ? 'bg-blue-500' : 'bg-orange-500'}`} 
+                              style={{ width: `${percentage}%` }}
+                            ></div>
+                        </div>
+                    </div>
+                );
+            })}
+        </div>
+    </div>
+  );
 
   // --- RENDER FUNCTIONS ---
 
@@ -302,18 +366,51 @@ const App: React.FC = () => {
 
               <div className="max-w-7xl mx-auto px-4 py-8 space-y-8">
                   {/* Summary Cards */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                      <div className="bg-gradient-to-br from-green-500 to-green-600 p-6 rounded-xl shadow-md text-white">
+                          <div className="flex items-center gap-2 mb-2 opacity-90">
+                            <Star className="w-5 h-5" />
+                            <p className="text-sm font-medium">Overall Rating</p>
+                          </div>
+                          <p className="text-4xl font-bold">{stats.overallRating.toFixed(2)}</p>
+                          <p className="text-xs opacity-80 mt-1">Average across all criteria</p>
+                      </div>
+
                       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                          <p className="text-sm font-medium text-slate-500 mb-1">Total Respondents</p>
+                          <div className="flex items-center gap-2 mb-2 text-slate-500">
+                            <User className="w-5 h-5" />
+                            <p className="text-sm font-medium">Total Respondents</p>
+                          </div>
                           <p className="text-4xl font-bold text-slate-800">{stats.totalRespondents}</p>
                       </div>
+                      
                       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                          <p className="text-sm font-medium text-slate-500 mb-1">Total Comments</p>
-                          <p className="text-4xl font-bold text-blue-600">{stats.comments.strengths.length + stats.comments.improvements.length}</p>
+                          <div className="flex items-center gap-2 mb-2 text-slate-500">
+                             <Calendar className="w-5 h-5" />
+                             <p className="text-sm font-medium">Respondents by Day</p>
+                          </div>
+                          <div className="grid grid-cols-3 gap-2 text-center">
+                              <div className="bg-slate-50 rounded p-2">
+                                  <div className="text-xs text-slate-400 font-bold uppercase">Day 1</div>
+                                  <div className="font-bold text-slate-700">{stats.dailyRespondents[1]}</div>
+                              </div>
+                              <div className="bg-slate-50 rounded p-2">
+                                  <div className="text-xs text-slate-400 font-bold uppercase">Day 2</div>
+                                  <div className="font-bold text-slate-700">{stats.dailyRespondents[2]}</div>
+                              </div>
+                              <div className="bg-slate-50 rounded p-2">
+                                  <div className="text-xs text-slate-400 font-bold uppercase">Day 3</div>
+                                  <div className="font-bold text-slate-700">{stats.dailyRespondents[3]}</div>
+                              </div>
+                          </div>
                       </div>
+
                       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                          <p className="text-sm font-medium text-slate-500 mb-1">Overall Sessions</p>
-                          <p className="text-4xl font-bold text-green-600">{SESSIONS.length}</p>
+                          <div className="flex items-center gap-2 mb-2 text-slate-500">
+                            <MessageSquare className="w-5 h-5" />
+                            <p className="text-sm font-medium">Total Comments</p>
+                          </div>
+                          <p className="text-4xl font-bold text-blue-600">{stats.comments.strengths.length + stats.comments.improvements.length}</p>
                       </div>
                   </div>
 
@@ -325,12 +422,14 @@ const App: React.FC = () => {
                               <h3 className="font-bold text-slate-800">Respondents by Position</h3>
                           </div>
                           <div className="space-y-3">
-                              {Object.entries(stats.positionDistribution).sort((a,b) => b[1] - a[1]).map(([pos, count]) => (
+                              {Object.entries(stats.positionDistribution)
+                                .sort(([, countA], [, countB]) => Number(countB) - Number(countA))
+                                .map(([pos, count]) => (
                                   <div key={pos} className="flex items-center justify-between text-sm">
                                       <span className="text-slate-600 truncate mr-2">{pos}</span>
                                       <div className="flex items-center gap-2">
                                         <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden">
-                                            <div className="h-full bg-blue-500" style={{ width: `${(count / (stats.totalRespondents || 1)) * 100}%` }}></div>
+                                            <div className="h-full bg-blue-500" style={{ width: `${(Number(count) / (stats.totalRespondents || 1)) * 100}%` }}></div>
                                         </div>
                                         <span className="font-bold w-6 text-right">{count}</span>
                                       </div>
@@ -355,32 +454,9 @@ const App: React.FC = () => {
                   </div>
 
                   {/* General Evaluation Analysis */}
-                  <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                      <div className="flex items-center gap-2 mb-6 pb-2 border-b">
-                          <ClipboardCheck className="w-5 h-5 text-slate-400" />
-                          <h3 className="font-bold text-slate-800">Program Management Analysis</h3>
-                      </div>
-                      <div className="space-y-6">
-                          {GENERAL_QUESTIONS.map(q => {
-                              const rating = stats.generalRatings[q.id] || { sum: 0, count: 0, avg: 0 };
-                              const percentage = (rating.avg / 4) * 100;
-                              return (
-                                  <div key={q.id}>
-                                      <div className="flex justify-between items-end mb-1">
-                                          <p className="text-sm font-medium text-slate-700">{q.text}</p>
-                                          <p className="text-lg font-bold text-slate-900">{rating.avg.toFixed(2)} <span className="text-xs text-slate-400 font-normal">/ 4.00</span></p>
-                                      </div>
-                                      <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
-                                          <div 
-                                            className={`h-full ${percentage >= 90 ? 'bg-green-500' : percentage >= 75 ? 'bg-blue-500' : 'bg-orange-500'}`} 
-                                            style={{ width: `${percentage}%` }}
-                                          ></div>
-                                      </div>
-                                  </div>
-                              );
-                          })}
-                      </div>
-                  </div>
+                  {renderAnalysisSection('Program Management Team', <ClipboardCheck className="w-5 h-5 text-slate-400" />, PROGRAM_QUESTIONS)}
+                  {renderAnalysisSection('Venue and Accommodation', <MapPin className="w-5 h-5 text-slate-400" />, VENUE_QUESTIONS)}
+                  {renderAnalysisSection('Meals', <Utensils className="w-5 h-5 text-slate-400" />, MEAL_QUESTIONS)}
 
                   {/* Session Analysis */}
                   <div className="space-y-6">
@@ -391,8 +467,8 @@ const App: React.FC = () => {
                         {SESSIONS.map(session => {
                             const sessionStats = stats.sessionRatings[session.id] || {};
                             // Calculate overall session average
-                            const totalSum = Object.values(sessionStats).reduce((acc, curr: any) => acc + curr.sum, 0);
-                            const totalCount = Object.values(sessionStats).reduce((acc, curr: any) => acc + curr.count, 0);
+                            const totalSum = Object.values(sessionStats).reduce((acc: number, curr: any) => acc + (curr.sum as number), 0);
+                            const totalCount = Object.values(sessionStats).reduce((acc: number, curr: any) => acc + (curr.count as number), 0);
                             const sessionAvg = totalCount ? totalSum / totalCount : 0;
 
                             return (
@@ -646,51 +722,8 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {/* Step 2: General Evaluation */}
+        {/* Step 2: Session Evaluation (MOVED FROM STEP 3) */}
         {currentStep === 2 && (
-          <div className="space-y-6">
-            <div className="flex items-center gap-3 mb-6 pb-4 border-b border-slate-100">
-              <div className="p-2 bg-yellow-100 text-yellow-600 rounded-lg">
-                <ClipboardCheck className="w-6 h-6" />
-              </div>
-              <div>
-                <h2 className="text-xl font-bold text-slate-800">Program Management</h2>
-                <p className="text-sm text-slate-500">Rate the overall conduct of the activity.</p>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-                {GENERAL_QUESTIONS.map(q => (
-                    <RatingScale
-                        key={q.id}
-                        label={q.text}
-                        value={formData.generalRatings[q.id]}
-                        onChange={(val) => handleGeneralRating(q.id, val)}
-                        required
-                    />
-                ))}
-            </div>
-
-            <div className="flex justify-between pt-6">
-                <button
-                    onClick={() => setCurrentStep(1)}
-                    className="flex items-center gap-2 text-slate-500 px-4 py-3 font-semibold hover:text-slate-800 transition-all"
-                >
-                    <ArrowLeft className="w-4 h-4" /> Back
-                </button>
-                <button
-                    disabled={!isGeneralValid()}
-                    onClick={() => setCurrentStep(3)}
-                    className="flex items-center gap-2 bg-green-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                >
-                    Evaluate Sessions <ArrowRight className="w-4 h-4" />
-                </button>
-            </div>
-          </div>
-        )}
-
-        {/* Step 3: Session Evaluation */}
-        {currentStep === 3 && (
             <div className="space-y-8">
                 <div className="flex items-center gap-3 mb-6 pb-4 border-b border-slate-100">
                     <div className="p-2 bg-purple-100 text-purple-600 rounded-lg">
@@ -743,19 +776,107 @@ const App: React.FC = () => {
 
                 <div className="flex justify-between pt-6">
                     <button
-                        onClick={() => setCurrentStep(2)}
+                        onClick={() => setCurrentStep(1)}
                         className="flex items-center gap-2 text-slate-500 px-4 py-3 font-semibold hover:text-slate-800 transition-all"
                     >
                         <ArrowLeft className="w-4 h-4" /> Back
                     </button>
                     <button
-                        onClick={() => setCurrentStep(4)}
+                        onClick={() => setCurrentStep(3)}
                         className="flex items-center gap-2 bg-green-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-green-700 transition-all"
                     >
-                        Final Comments <ArrowRight className="w-4 h-4" />
+                        General Evaluation <ArrowRight className="w-4 h-4" />
                     </button>
                 </div>
             </div>
+        )}
+
+        {/* Step 3: General Evaluation (MOVED FROM STEP 2) */}
+        {currentStep === 3 && (
+          <div className="space-y-6">
+            <div className="flex items-center gap-3 mb-6 pb-4 border-b border-slate-100">
+              <div className="p-2 bg-yellow-100 text-yellow-600 rounded-lg">
+                <ClipboardCheck className="w-6 h-6" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-slate-800">General Evaluation</h2>
+                <p className="text-sm text-slate-500">Rate the overall conduct of the activity.</p>
+              </div>
+            </div>
+
+            {/* Program Management */}
+            <div className="mb-8">
+                <h3 className="font-semibold text-slate-700 mb-4 flex items-center gap-2">
+                    <ClipboardCheck className="w-5 h-5 text-blue-600" /> 
+                    Program Management Team
+                </h3>
+                <div className="space-y-4">
+                    {PROGRAM_QUESTIONS.map(q => (
+                        <RatingScale
+                            key={q.id}
+                            label={q.text}
+                            value={formData.generalRatings[q.id]}
+                            onChange={(val) => handleGeneralRating(q.id, val)}
+                            required
+                        />
+                    ))}
+                </div>
+            </div>
+
+            {/* Venue */}
+            <div className="mb-8">
+                <h3 className="font-semibold text-slate-700 mb-4 flex items-center gap-2">
+                    <MapPin className="w-5 h-5 text-red-600" /> 
+                    Venue and Accommodation
+                </h3>
+                <div className="space-y-4">
+                    {VENUE_QUESTIONS.map(q => (
+                        <RatingScale
+                            key={q.id}
+                            label={q.text}
+                            value={formData.generalRatings[q.id]}
+                            onChange={(val) => handleGeneralRating(q.id, val)}
+                            required
+                        />
+                    ))}
+                </div>
+            </div>
+
+            {/* Meals */}
+            <div className="mb-8">
+                <h3 className="font-semibold text-slate-700 mb-4 flex items-center gap-2">
+                    <Utensils className="w-5 h-5 text-orange-600" /> 
+                    Meals
+                </h3>
+                <div className="space-y-4">
+                    {MEAL_QUESTIONS.map(q => (
+                        <RatingScale
+                            key={q.id}
+                            label={q.text}
+                            value={formData.generalRatings[q.id]}
+                            onChange={(val) => handleGeneralRating(q.id, val)}
+                            required
+                        />
+                    ))}
+                </div>
+            </div>
+
+            <div className="flex justify-between pt-6">
+                <button
+                    onClick={() => setCurrentStep(2)}
+                    className="flex items-center gap-2 text-slate-500 px-4 py-3 font-semibold hover:text-slate-800 transition-all"
+                >
+                    <ArrowLeft className="w-4 h-4" /> Back
+                </button>
+                <button
+                    disabled={!isGeneralValid()}
+                    onClick={() => setCurrentStep(4)}
+                    className="flex items-center gap-2 bg-green-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                >
+                    Final Comments <ArrowRight className="w-4 h-4" />
+                </button>
+            </div>
+          </div>
         )}
 
         {/* Step 4: Comments */}

@@ -77,17 +77,41 @@ export const SESSIONS: Session[] = [
   }
 ];
 
-export const GENERAL_QUESTIONS: Question[] = [
-  { id: 'g1', text: "Registration process was systematic and efficient." },
-  { id: 'g2', text: "The venue (DAP Tagaytay) was conducive to learning." },
-  { id: 'g3', text: "Food and accommodation were satisfactory." },
-  { id: 'g4', text: "The secretariat/program management team was helpful." },
-  { id: 'g5', text: "The seminar objectives were clearly met." }
+export const PROGRAM_QUESTIONS: Question[] = [
+  { id: 'pm1', text: "The program started and ended on time." },
+  { id: 'pm2', text: "The information and instructions given throughout the program were clear and easy to follow." },
+  { id: 'pm3', text: "The organization of the program was logical." },
+  { id: 'pm4', text: "The program was structured properly." },
+  { id: 'pm5', text: "Socially-inclusive, gender-sensitive, and non-discriminatory stereotypical language was always used." },
+  { id: 'pm6', text: "The program was managed efficiently." },
+  { id: 'pm7', text: "The PMT is responsive to the needs of the participants." }
+];
+
+export const VENUE_QUESTIONS: Question[] = [
+  { id: 'v1', text: "The venue is well-lighted and well-ventilated." },
+  { id: 'v2', text: "The venue has sufficient space for program activities." },
+  { id: 'v3', text: "The venue has adequate soundproofing." },
+  { id: 'v4', text: "The venue is clean and has accessible comfort rooms." },
+  { id: 'v5', text: "The internet access was usable" }
+];
+
+export const MEAL_QUESTIONS: Question[] = [
+  { id: 'm1', text: "Meals were of satisfactory quality and varied." },
+  { id: 'm2', text: "Meals were nutritious." },
+  { id: 'm3', text: "Meals served on time" }
 ];
 
 export const SESSION_QUESTIONS: Question[] = [
-  { id: 'sq1', text: "The speaker demonstrated mastery of the topic." },
-  { id: 'sq2', text: "The topic was relevant to my role/function." },
-  { id: 'sq3', text: "The presentation materials were clear and readable." },
-  { id: 'sq4', text: "Time management was observed." }
+  { id: 'sq1', text: "The session started on time." },
+  { id: 'sq2', text: "The session objectives were explained at the beginning of the session." },
+  { id: 'sq3', text: "The resource speaker explained the topics in an understandable level." },
+  { id: 'sq4', text: "The time and pace allotted for the session was sufficient to absorb inputs or to accomplish outputs." },
+  { id: 'sq5', text: "The resource speaker establishes rapport with participants." },
+  { id: 'sq6', text: "The resource speaker established and maintained a positive/non-threatening and comfortable learning environment." },
+  { id: 'sq7', text: "The resource speaker demonstrated good communication skills (verbal and non-verbal)." },
+  { id: 'sq8', text: "The resource speaker used appropriate technology with ease and confidence." },
+  { id: 'sq9', text: "The resource speaker synthesized the responses of the participants and the activities of the session." },
+  { id: 'sq10', text: "The resource speaker exhibited flexibility and adaptability in the delivery of the session to ensure an appropriate response to unforeseen situations." },
+  { id: 'sq11', text: "The resource speaker presented him/herself in a professional manner." },
+  { id: 'sq12', text: "The session ended on time." }
 ];

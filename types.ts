@@ -42,6 +42,8 @@ export interface Question {
 
 export interface AggregatedStats {
   totalRespondents: number;
+  dailyRespondents: Record<number, number>;
+  overallRating: number;
   sexDistribution: Record<string, number>;
   positionDistribution: Record<string, number>;
   generalRatings: Record<string, { sum: number; count: number; avg: number }>;
