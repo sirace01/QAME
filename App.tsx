@@ -3,7 +3,8 @@ import Layout from './components/Layout';
 import RatingScale from './components/RatingScale';
 import { EvaluationState, RatingValue } from './types';
 import { EVENT_DETAILS, GENERAL_QUESTIONS, SESSION_QUESTIONS, SESSIONS, POSITIONS } from './constants';
-import { ArrowRight, Check, User, MessageSquare, ClipboardCheck, ArrowLeft, BookOpen } from 'lucide-react';
+import { ArrowRight, Check, User, MessageSquare, ClipboardCheck, ArrowLeft, BookOpen, Loader2 } from 'lucide-react';
+import { supabase } from './supabaseClient';
 
 const INITIAL_STATE: EvaluationState = {
   profile: {
@@ -25,6 +26,7 @@ const App: React.FC = () => {
   const [currentStep, setCurrentStep] = useState(0); // 0: Welcome, 1: Profile, 2: General, 3: Sessions, 4: Comments, 5: Success
   const [formData, setFormData] = useState<EvaluationState>(INITIAL_STATE);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Scroll to top on step change
   useEffect(() => {
@@ -75,10 +77,34 @@ const App: React.FC = () => {
   const filteredSessions = selectedDay ? SESSIONS.filter(s => s.day === selectedDay) : [];
 
   const handleSubmit = async () => {
-    // Simulate API call
-    console.log("Submitting Evaluation:", formData);
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    setCurrentStep(5);
+    setIsSubmitting(true);
+    try {
+        const { error } = await supabase
+            .from('evaluations')
+            .insert([
+                {
+                    name: formData.profile.name,
+                    email: formData.profile.email,
+                    sex: formData.profile.sex,
+                    position: formData.profile.position,
+                    school: formData.profile.school,
+                    selected_day: selectedDay,
+                    general_ratings: formData.generalRatings,
+                    session_ratings: formData.sessionRatings,
+                    strengths: formData.comments.strengths,
+                    improvements: formData.comments.improvements
+                }
+            ]);
+
+        if (error) throw error;
+
+        setCurrentStep(5);
+    } catch (error) {
+        console.error('Error submitting evaluation:', error);
+        alert('Failed to submit evaluation. Please check your internet connection and try again.');
+    } finally {
+        setIsSubmitting(false);
+    }
   };
 
   // Render Welcome Screen
@@ -403,15 +429,23 @@ const App: React.FC = () => {
                 <div className="flex justify-between pt-6">
                     <button
                         onClick={() => setCurrentStep(3)}
-                        className="flex items-center gap-2 text-slate-500 px-4 py-3 font-semibold hover:text-slate-800 transition-all"
+                        disabled={isSubmitting}
+                        className="flex items-center gap-2 text-slate-500 px-4 py-3 font-semibold hover:text-slate-800 transition-all disabled:opacity-50"
                     >
                         <ArrowLeft className="w-4 h-4" /> Back
                     </button>
                     <button
                         onClick={handleSubmit}
-                        className="flex items-center gap-2 bg-gradient-to-r from-green-600 to-green-800 text-white px-8 py-3 rounded-lg font-bold shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all"
+                        disabled={isSubmitting}
+                        className="flex items-center gap-2 bg-gradient-to-r from-green-600 to-green-800 text-white px-8 py-3 rounded-lg font-bold shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all disabled:opacity-70 disabled:cursor-not-allowed"
                     >
-                        Submit Evaluation
+                        {isSubmitting ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" /> Submitting...
+                          </>
+                        ) : (
+                          'Submit Evaluation'
+                        )}
                     </button>
                 </div>
              </div>
