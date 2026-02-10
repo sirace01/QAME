@@ -471,7 +471,7 @@ const App: React.FC = () => {
                             <p className="mb-2">If you have verified that data exists in your Supabase database, the issue is likely due to <strong>Row Level Security (RLS)</strong>.</p>
                             <p className="mb-2">Supabase tables hide data from API requests by default. To fix this:</p>
                             <ol className="list-decimal pl-5 space-y-1 mb-2">
-                                <li>Go to your Supabase Dashboard > Table Editor.</li>
+                                <li>Go to your Supabase Dashboard &gt; Table Editor.</li>
                                 <li>Select the <code>evaluations</code> table.</li>
                                 <li>Click "Add RLS Policy" or edit existing policies.</li>
                                 <li>Create a policy to <strong>Enable SELECT for public/anon</strong>.</li>
