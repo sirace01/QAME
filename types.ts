@@ -39,3 +39,15 @@ export interface Question {
   id: string;
   text: string;
 }
+
+export interface AggregatedStats {
+  totalRespondents: number;
+  sexDistribution: Record<string, number>;
+  positionDistribution: Record<string, number>;
+  generalRatings: Record<string, { sum: number; count: number; avg: number }>;
+  sessionRatings: Record<string, Record<string, { sum: number; count: number; avg: number }>>;
+  comments: {
+    strengths: string[];
+    improvements: string[];
+  };
+}

@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import Layout from './components/Layout';
 import RatingScale from './components/RatingScale';
-import { EvaluationState, RatingValue } from './types';
+import { EvaluationState, RatingValue, AggregatedStats } from './types';
 import { EVENT_DETAILS, GENERAL_QUESTIONS, SESSION_QUESTIONS, SESSIONS, POSITIONS } from './constants';
-import { ArrowRight, Check, User, MessageSquare, ClipboardCheck, ArrowLeft, BookOpen, Loader2 } from 'lucide-react';
+import { ArrowRight, Check, User, MessageSquare, ClipboardCheck, ArrowLeft, BookOpen, Loader2, Lock, BarChart3, PieChart, LogOut, Download } from 'lucide-react';
 import { supabase } from './supabaseClient';
 
 const INITIAL_STATE: EvaluationState = {
@@ -23,10 +23,17 @@ const INITIAL_STATE: EvaluationState = {
 };
 
 const App: React.FC = () => {
-  const [currentStep, setCurrentStep] = useState(0); // 0: Welcome, 1: Profile, 2: General, 3: Sessions, 4: Comments, 5: Success
+  // Steps: 0=Welcome, 1-4=Form, 5=Success, -1=Login, -2=Dashboard
+  const [currentStep, setCurrentStep] = useState(0);
   const [formData, setFormData] = useState<EvaluationState>(INITIAL_STATE);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // Admin State
+  const [passwordInput, setPasswordInput] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [isLoadingResults, setIsLoadingResults] = useState(false);
+  const [stats, setStats] = useState<AggregatedStats | null>(null);
 
   // Scroll to top on step change
   useEffect(() => {
@@ -107,11 +114,376 @@ const App: React.FC = () => {
     }
   };
 
+  const handleLogin = async () => {
+      setLoginError('');
+      setIsLoadingResults(true);
+
+      try {
+          // Verify password against database
+          const { data: codes, error } = await supabase
+            .from('access_codes')
+            .select('*')
+            .eq('code', passwordInput)
+            .single();
+
+          if (error || !codes) {
+              setLoginError('Invalid access code.');
+              setIsLoadingResults(false);
+              return;
+          }
+
+          // Fetch all data
+          const { data: evaluations, error: evalError } = await supabase
+            .from('evaluations')
+            .select('*');
+
+          if (evalError) throw evalError;
+
+          // Process Data
+          processStats(evaluations || []);
+          setCurrentStep(-2); // Go to Dashboard
+
+      } catch (err) {
+          console.error(err);
+          setLoginError('An error occurred. Please try again.');
+      } finally {
+          setIsLoadingResults(false);
+      }
+  };
+
+  const processStats = (data: any[]) => {
+      const newStats: AggregatedStats = {
+          totalRespondents: data.length,
+          sexDistribution: {},
+          positionDistribution: {},
+          generalRatings: {},
+          sessionRatings: {},
+          comments: { strengths: [], improvements: [] }
+      };
+
+      // Initialize General Ratings Accumulators
+      GENERAL_QUESTIONS.forEach(q => {
+          newStats.generalRatings[q.id] = { sum: 0, count: 0, avg: 0 };
+      });
+
+      // Initialize Session Ratings Accumulators
+      SESSIONS.forEach(s => {
+          newStats.sessionRatings[s.id] = {};
+          SESSION_QUESTIONS.forEach(q => {
+              newStats.sessionRatings[s.id][q.id] = { sum: 0, count: 0, avg: 0 };
+          });
+      });
+
+      data.forEach(entry => {
+          // Demographics
+          const sex = entry.sex || 'Unspecified';
+          newStats.sexDistribution[sex] = (newStats.sexDistribution[sex] || 0) + 1;
+
+          const pos = entry.position || 'Unspecified';
+          newStats.positionDistribution[pos] = (newStats.positionDistribution[pos] || 0) + 1;
+
+          // General Ratings
+          if (entry.general_ratings) {
+              Object.entries(entry.general_ratings).forEach(([key, val]) => {
+                  if (newStats.generalRatings[key]) {
+                      newStats.generalRatings[key].sum += Number(val);
+                      newStats.generalRatings[key].count += 1;
+                  }
+              });
+          }
+
+          // Session Ratings
+          if (entry.session_ratings) {
+              Object.entries(entry.session_ratings).forEach(([sessionId, sessionData]) => {
+                  if (newStats.sessionRatings[sessionId] && typeof sessionData === 'object') {
+                      Object.entries(sessionData as Record<string, number>).forEach(([qId, val]) => {
+                          if (newStats.sessionRatings[sessionId][qId]) {
+                              newStats.sessionRatings[sessionId][qId].sum += Number(val);
+                              newStats.sessionRatings[sessionId][qId].count += 1;
+                          }
+                      });
+                  }
+              });
+          }
+
+          // Comments
+          if (entry.strengths) newStats.comments.strengths.push(entry.strengths);
+          if (entry.improvements) newStats.comments.improvements.push(entry.improvements);
+      });
+
+      // Calculate Averages
+      Object.keys(newStats.generalRatings).forEach(key => {
+          const item = newStats.generalRatings[key];
+          item.avg = item.count > 0 ? item.sum / item.count : 0;
+      });
+
+      Object.keys(newStats.sessionRatings).forEach(sessId => {
+          Object.keys(newStats.sessionRatings[sessId]).forEach(qId => {
+              const item = newStats.sessionRatings[sessId][qId];
+              item.avg = item.count > 0 ? item.sum / item.count : 0;
+          });
+      });
+
+      setStats(newStats);
+  };
+
+  // --- RENDER FUNCTIONS ---
+
+  // Login Screen
+  if (currentStep === -1) {
+      return (
+        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+            <div className="max-w-md w-full bg-white rounded-xl shadow-xl overflow-hidden p-8">
+                <div className="flex justify-center mb-6">
+                    <div className="p-3 bg-slate-100 rounded-full">
+                        <Lock className="w-8 h-8 text-slate-600" />
+                    </div>
+                </div>
+                <h2 className="text-2xl font-bold text-center text-slate-800 mb-2">Restricted Access</h2>
+                <p className="text-center text-slate-500 mb-6">Please enter the administration access code to view QAME results.</p>
+                
+                <div className="space-y-4">
+                    <input 
+                        type="password" 
+                        value={passwordInput}
+                        onChange={(e) => setPasswordInput(e.target.value)}
+                        className="w-full px-4 py-3 rounded-lg border border-slate-200 focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
+                        placeholder="Enter Access Code"
+                        onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+                    />
+                    {loginError && <p className="text-red-500 text-sm text-center">{loginError}</p>}
+                    
+                    <button 
+                        onClick={handleLogin}
+                        disabled={isLoadingResults}
+                        className="w-full bg-slate-800 text-white py-3 rounded-lg font-semibold hover:bg-slate-900 transition-all disabled:opacity-50 flex justify-center items-center gap-2"
+                    >
+                        {isLoadingResults ? <Loader2 className="animate-spin w-4 h-4" /> : 'Access Results'}
+                    </button>
+                    <button 
+                        onClick={() => setCurrentStep(0)}
+                        className="w-full text-slate-500 py-2 hover:text-slate-800 transition-all text-sm"
+                    >
+                        Return to Home
+                    </button>
+                </div>
+            </div>
+        </div>
+      );
+  }
+
+  // Dashboard Screen
+  if (currentStep === -2 && stats) {
+      return (
+          <div className="min-h-screen bg-slate-100 pb-12">
+              {/* Dashboard Header */}
+              <div className="bg-white shadow border-b border-slate-200 sticky top-0 z-10">
+                  <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
+                      <div className="flex items-center gap-3">
+                          <BarChart3 className="w-6 h-6 text-green-600" />
+                          <h1 className="text-xl font-bold text-slate-800">QAME Result Analysis</h1>
+                      </div>
+                      <div className="flex gap-2">
+                        <button 
+                            onClick={() => window.print()}
+                            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 rounded-md hover:bg-slate-200"
+                        >
+                            <Download className="w-4 h-4" /> Print
+                        </button>
+                        <button 
+                            onClick={() => { setStats(null); setPasswordInput(''); setCurrentStep(0); }}
+                            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-600 bg-red-50 rounded-md hover:bg-red-100"
+                        >
+                            <LogOut className="w-4 h-4" /> Logout
+                        </button>
+                      </div>
+                  </div>
+              </div>
+
+              <div className="max-w-7xl mx-auto px-4 py-8 space-y-8">
+                  {/* Summary Cards */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                          <p className="text-sm font-medium text-slate-500 mb-1">Total Respondents</p>
+                          <p className="text-4xl font-bold text-slate-800">{stats.totalRespondents}</p>
+                      </div>
+                      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                          <p className="text-sm font-medium text-slate-500 mb-1">Total Comments</p>
+                          <p className="text-4xl font-bold text-blue-600">{stats.comments.strengths.length + stats.comments.improvements.length}</p>
+                      </div>
+                      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                          <p className="text-sm font-medium text-slate-500 mb-1">Overall Sessions</p>
+                          <p className="text-4xl font-bold text-green-600">{SESSIONS.length}</p>
+                      </div>
+                  </div>
+
+                  {/* Demographics */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                          <div className="flex items-center gap-2 mb-4 pb-2 border-b">
+                              <User className="w-5 h-5 text-slate-400" />
+                              <h3 className="font-bold text-slate-800">Respondents by Position</h3>
+                          </div>
+                          <div className="space-y-3">
+                              {Object.entries(stats.positionDistribution).sort((a,b) => b[1] - a[1]).map(([pos, count]) => (
+                                  <div key={pos} className="flex items-center justify-between text-sm">
+                                      <span className="text-slate-600 truncate mr-2">{pos}</span>
+                                      <div className="flex items-center gap-2">
+                                        <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden">
+                                            <div className="h-full bg-blue-500" style={{ width: `${(count / (stats.totalRespondents || 1)) * 100}%` }}></div>
+                                        </div>
+                                        <span className="font-bold w-6 text-right">{count}</span>
+                                      </div>
+                                  </div>
+                              ))}
+                          </div>
+                      </div>
+                      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                           <div className="flex items-center gap-2 mb-4 pb-2 border-b">
+                              <PieChart className="w-5 h-5 text-slate-400" />
+                              <h3 className="font-bold text-slate-800">Respondents by Sex</h3>
+                          </div>
+                          <div className="flex gap-4">
+                               {Object.entries(stats.sexDistribution).map(([sex, count]) => (
+                                   <div key={sex} className="flex-1 text-center p-4 bg-slate-50 rounded-lg">
+                                       <span className="block text-2xl font-bold text-slate-800">{count}</span>
+                                       <span className="text-sm text-slate-500">{sex}</span>
+                                   </div>
+                               ))}
+                          </div>
+                      </div>
+                  </div>
+
+                  {/* General Evaluation Analysis */}
+                  <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                      <div className="flex items-center gap-2 mb-6 pb-2 border-b">
+                          <ClipboardCheck className="w-5 h-5 text-slate-400" />
+                          <h3 className="font-bold text-slate-800">Program Management Analysis</h3>
+                      </div>
+                      <div className="space-y-6">
+                          {GENERAL_QUESTIONS.map(q => {
+                              const rating = stats.generalRatings[q.id] || { sum: 0, count: 0, avg: 0 };
+                              const percentage = (rating.avg / 4) * 100;
+                              return (
+                                  <div key={q.id}>
+                                      <div className="flex justify-between items-end mb-1">
+                                          <p className="text-sm font-medium text-slate-700">{q.text}</p>
+                                          <p className="text-lg font-bold text-slate-900">{rating.avg.toFixed(2)} <span className="text-xs text-slate-400 font-normal">/ 4.00</span></p>
+                                      </div>
+                                      <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
+                                          <div 
+                                            className={`h-full ${percentage >= 90 ? 'bg-green-500' : percentage >= 75 ? 'bg-blue-500' : 'bg-orange-500'}`} 
+                                            style={{ width: `${percentage}%` }}
+                                          ></div>
+                                      </div>
+                                  </div>
+                              );
+                          })}
+                      </div>
+                  </div>
+
+                  {/* Session Analysis */}
+                  <div className="space-y-6">
+                        <div className="flex items-center gap-2 mb-2">
+                            <BookOpen className="w-5 h-5 text-slate-400" />
+                            <h3 className="font-bold text-xl text-slate-800">Session Evaluation Breakdown</h3>
+                        </div>
+                        {SESSIONS.map(session => {
+                            const sessionStats = stats.sessionRatings[session.id] || {};
+                            // Calculate overall session average
+                            const totalSum = Object.values(sessionStats).reduce((acc, curr: any) => acc + curr.sum, 0);
+                            const totalCount = Object.values(sessionStats).reduce((acc, curr: any) => acc + curr.count, 0);
+                            const sessionAvg = totalCount ? totalSum / totalCount : 0;
+
+                            return (
+                                <div key={session.id} className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 break-inside-avoid">
+                                    <div className="flex justify-between items-start mb-4 border-b pb-4">
+                                        <div>
+                                            <span className="inline-block px-2 py-1 bg-slate-100 text-xs font-bold text-slate-600 rounded mb-1">Day {session.day}</span>
+                                            <h4 className="font-bold text-lg text-slate-800">{session.title}</h4>
+                                            <p className="text-sm text-slate-500">{session.speakers.map(s => s.name).join(', ')}</p>
+                                        </div>
+                                        <div className="text-right">
+                                            <div className="text-2xl font-bold text-green-600">{sessionAvg.toFixed(2)}</div>
+                                            <div className="text-xs text-slate-400">Average Rating</div>
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        {SESSION_QUESTIONS.map(q => {
+                                            const qStat = sessionStats[q.id];
+                                            return (
+                                                <div key={q.id} className="bg-slate-50 p-3 rounded-lg">
+                                                    <p className="text-xs text-slate-500 mb-1 truncate" title={q.text}>{q.text}</p>
+                                                    <div className="flex justify-between items-center">
+                                                        <div className="flex gap-0.5">
+                                                            {[1,2,3,4].map(star => (
+                                                                <div key={star} className={`w-2 h-2 rounded-full ${star <= Math.round(qStat.avg) ? 'bg-green-500' : 'bg-slate-300'}`}></div>
+                                                            ))}
+                                                        </div>
+                                                        <span className="font-bold text-sm">{qStat.avg.toFixed(2)}</span>
+                                                    </div>
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                  </div>
+
+                  {/* Qualitative Comments */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 print:break-before-page">
+                      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                           <div className="flex items-center gap-2 mb-4 pb-2 border-b border-green-100">
+                              <MessageSquare className="w-5 h-5 text-green-600" />
+                              <h3 className="font-bold text-slate-800">Significant Learnings / Strengths</h3>
+                          </div>
+                          <div className="h-96 overflow-y-auto pr-2 space-y-3">
+                              {stats.comments.strengths.filter(c => c.trim().length > 0).map((comment, idx) => (
+                                  <div key={idx} className="p-3 bg-green-50 rounded-lg text-sm text-slate-700 border-l-4 border-green-500">
+                                      "{comment}"
+                                  </div>
+                              ))}
+                              {stats.comments.strengths.filter(c => c.trim().length > 0).length === 0 && (
+                                  <p className="text-slate-400 text-center italic mt-10">No comments recorded.</p>
+                              )}
+                          </div>
+                      </div>
+                      
+                      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                           <div className="flex items-center gap-2 mb-4 pb-2 border-b border-orange-100">
+                              <MessageSquare className="w-5 h-5 text-orange-600" />
+                              <h3 className="font-bold text-slate-800">Areas for Improvement</h3>
+                          </div>
+                          <div className="h-96 overflow-y-auto pr-2 space-y-3">
+                              {stats.comments.improvements.filter(c => c.trim().length > 0).map((comment, idx) => (
+                                  <div key={idx} className="p-3 bg-orange-50 rounded-lg text-sm text-slate-700 border-l-4 border-orange-500">
+                                      "{comment}"
+                                  </div>
+                              ))}
+                              {stats.comments.improvements.filter(c => c.trim().length > 0).length === 0 && (
+                                  <p className="text-slate-400 text-center italic mt-10">No comments recorded.</p>
+                              )}
+                          </div>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      );
+  }
+
   // Render Welcome Screen
   if (currentStep === 0) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-white rounded-xl shadow-xl overflow-hidden">
+        <div className="max-w-md w-full bg-white rounded-xl shadow-xl overflow-hidden relative">
+            <button 
+                onClick={() => setCurrentStep(-1)}
+                className="absolute top-4 right-4 p-2 text-white/80 hover:text-white hover:bg-white/10 rounded-full transition-all z-20"
+                title="View Results"
+            >
+                <BarChart3 className="w-5 h-5" />
+            </button>
             <div className="h-48 bg-green-700 relative flex items-center justify-center">
                  <div className="absolute inset-0 bg-[url('https://picsum.photos/800/400?blur')] opacity-20 bg-cover bg-center"></div>
                  <div className="relative z-10 text-white text-center p-4 flex flex-col items-center">
