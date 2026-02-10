@@ -11,7 +11,7 @@ import {
   SESSIONS, 
   POSITIONS 
 } from './constants';
-import { ArrowRight, Check, User, MessageSquare, ClipboardCheck, ArrowLeft, BookOpen, Loader2, Lock, BarChart3, PieChart, LogOut, Download, Utensils, MapPin, Calendar, Star, TrendingUp } from 'lucide-react';
+import { ArrowRight, Check, User, MessageSquare, ClipboardCheck, ArrowLeft, BookOpen, Loader2, Lock, BarChart3, PieChart, LogOut, Download, Utensils, MapPin, Calendar, Star, TrendingUp, AlertTriangle } from 'lucide-react';
 import { supabase } from './supabaseClient';
 
 const INITIAL_STATE: EvaluationState = {
@@ -31,6 +31,25 @@ const INITIAL_STATE: EvaluationState = {
 };
 
 const ALL_GENERAL_QUESTIONS = [...PROGRAM_QUESTIONS, ...VENUE_QUESTIONS, ...MEAL_QUESTIONS];
+
+// Helper to interpret ratings
+const getRatingLabel = (rating: number) => {
+    if (rating === 0) return 'No Data';
+    if (rating >= 4.50) return 'Outstanding';
+    if (rating >= 3.50) return 'Very Satisfactory';
+    if (rating >= 2.50) return 'Satisfactory';
+    if (rating >= 1.50) return 'Unsatisfactory';
+    return 'Poor';
+};
+
+const getRatingColorClass = (rating: number) => {
+    if (rating === 0) return 'text-slate-400';
+    if (rating >= 4.50) return 'text-green-700'; // Outstanding
+    if (rating >= 3.50) return 'text-green-600'; // VS
+    if (rating >= 2.50) return 'text-blue-600';  // S
+    if (rating >= 1.50) return 'text-orange-600'; // US
+    return 'text-red-600'; // Poor
+};
 
 const App: React.FC = () => {
   // Steps: 0=Welcome, 1-4=Form, 5=Success, -1=Login, -2=Dashboard
@@ -93,6 +112,15 @@ const App: React.FC = () => {
   // Filter sessions based on selected day
   const filteredSessions = selectedDay ? SESSIONS.filter(s => s.day === selectedDay) : [];
 
+  const isSessionValid = () => {
+    if (filteredSessions.length === 0) return true;
+    return filteredSessions.every(session => {
+        const ratings = formData.sessionRatings[session.id];
+        if (!ratings) return false;
+        return SESSION_QUESTIONS.every(q => ratings[q.id] !== undefined && ratings[q.id] > 0);
+    });
+  };
+
   const handleSubmit = async () => {
     setIsSubmitting(true);
     try {
@@ -143,11 +171,14 @@ const App: React.FC = () => {
           }
 
           // Fetch all data
+          console.log('Fetching evaluations...');
           const { data: evaluations, error: evalError } = await supabase
             .from('evaluations')
             .select('*');
 
           if (evalError) throw evalError;
+          
+          console.log('Evaluations fetched:', evaluations);
 
           // Process Data
           processStats(evaluations || []);
@@ -208,8 +239,11 @@ const App: React.FC = () => {
       });
 
       data.forEach(entry => {
-          // Daily Counters
-          const day = entry.selected_day;
+          // Daily Counters & Casting
+          let day = entry.selected_day;
+          // Ensure day is a number if it comes back as string
+          if (typeof day === 'string') day = parseInt(day, 10);
+
           if (day && (day === 1 || day === 2 || day === 3)) {
               newStats.dailyRespondents[day]++;
           }
@@ -234,7 +268,7 @@ const App: React.FC = () => {
                       grandCount += 1;
 
                       // Add to Daily Stats if day is valid
-                      if (day && dailyAcc[day]) {
+                      if (day && (day === 1 || day === 2 || day === 3) && dailyAcc[day]) {
                           dailyAcc[day].overall.sum += numVal;
                           dailyAcc[day].overall.count += 1;
 
@@ -268,7 +302,7 @@ const App: React.FC = () => {
                               grandCount += 1;
 
                               // Add to Daily Stats (Overall)
-                              if (day && dailyAcc[day]) {
+                              if (day && (day === 1 || day === 2 || day === 3) && dailyAcc[day]) {
                                   dailyAcc[day].overall.sum += numVal;
                                   dailyAcc[day].overall.count += 1;
                               }
@@ -322,16 +356,20 @@ const App: React.FC = () => {
         <div className="space-y-6">
             {questions.map(q => {
                 const rating = stats?.generalRatings[q.id] || { sum: 0, count: 0, avg: 0 };
-                const percentage = (rating.avg / 4) * 100;
+                // Calculate percentage based on 5-point scale
+                const percentage = (rating.avg / 5) * 100;
                 return (
                     <div key={q.id}>
                         <div className="flex justify-between items-end mb-1">
                             <p className="text-sm font-medium text-slate-700">{q.text}</p>
-                            <p className="text-lg font-bold text-slate-900">{rating.avg.toFixed(2)} <span className="text-xs text-slate-400 font-normal">/ 4.00</span></p>
+                            <div className="text-right">
+                                <p className="text-lg font-bold text-slate-900">{rating.avg.toFixed(2)} <span className="text-xs text-slate-400 font-normal">/ 5.00</span></p>
+                                <p className={`text-xs font-bold ${getRatingColorClass(rating.avg)}`}>{getRatingLabel(rating.avg)}</p>
+                            </div>
                         </div>
                         <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
                             <div 
-                              className={`h-full ${percentage >= 90 ? 'bg-green-500' : percentage >= 75 ? 'bg-blue-500' : 'bg-orange-500'}`} 
+                              className={`h-full ${percentage >= 80 ? 'bg-green-500' : percentage >= 60 ? 'bg-blue-500' : percentage >= 40 ? 'bg-orange-500' : 'bg-red-500'}`} 
                               style={{ width: `${percentage}%` }}
                             ></div>
                         </div>
@@ -416,262 +454,306 @@ const App: React.FC = () => {
               </div>
 
               <div className="max-w-7xl mx-auto px-4 py-8 space-y-8">
-                  {/* Summary Cards */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                      <div className="bg-gradient-to-br from-green-500 to-green-600 p-6 rounded-xl shadow-md text-white">
-                          <div className="flex items-center gap-2 mb-2 opacity-90">
-                            <Star className="w-5 h-5" />
-                            <p className="text-sm font-medium">Overall Rating</p>
+                  {stats.totalRespondents === 0 ? (
+                      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-12 text-center">
+                          <div className="w-24 h-24 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                              <BarChart3 className="w-12 h-12 text-slate-400" />
                           </div>
-                          <p className="text-4xl font-bold">{stats.overallRating.toFixed(2)}</p>
-                          <p className="text-xs opacity-80 mt-1">Grand Mean</p>
+                          <h3 className="text-xl font-bold text-slate-800 mb-2">No Evaluation Data Yet</h3>
+                          <p className="text-slate-500 max-w-md mx-auto mb-8">
+                              There are currently no submitted evaluations visible in the system. 
+                          </p>
+                          
+                          <div className="bg-yellow-50 text-yellow-800 p-6 rounded-lg text-sm text-left max-w-lg mx-auto mb-8 border border-yellow-200">
+                            <p className="font-bold mb-2 flex items-center gap-2 text-base">
+                                <AlertTriangle className="w-5 h-5" /> Data Not Showing?
+                            </p>
+                            <p className="mb-2">If you have verified that data exists in your Supabase database, the issue is likely due to <strong>Row Level Security (RLS)</strong>.</p>
+                            <p className="mb-2">Supabase tables hide data from API requests by default. To fix this:</p>
+                            <ol className="list-decimal pl-5 space-y-1 mb-2">
+                                <li>Go to your Supabase Dashboard > Table Editor.</li>
+                                <li>Select the <code>evaluations</code> table.</li>
+                                <li>Click "Add RLS Policy" or edit existing policies.</li>
+                                <li>Create a policy to <strong>Enable SELECT for public/anon</strong>.</li>
+                            </ol>
+                          </div>
+
+                          <button 
+                              onClick={() => { setStats(null); setPasswordInput(''); setCurrentStep(0); }}
+                              className="text-green-600 font-semibold hover:text-green-800"
+                          >
+                              Return to Evaluation Form
+                          </button>
                       </div>
+                  ) : (
+                      <>
+                        {/* Summary Cards */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                            <div className="bg-gradient-to-br from-green-500 to-green-600 p-6 rounded-xl shadow-md text-white">
+                                <div className="flex items-center gap-2 mb-2 opacity-90">
+                                  <Star className="w-5 h-5" />
+                                  <p className="text-sm font-medium">Overall Rating</p>
+                                </div>
+                                <div className="flex items-end gap-2">
+                                    <p className="text-4xl font-bold">{stats.overallRating.toFixed(2)}</p>
+                                    <p className="text-sm font-semibold opacity-90 mb-2">{getRatingLabel(stats.overallRating)}</p>
+                                </div>
+                                <p className="text-xs opacity-80 mt-1">Grand Mean</p>
+                            </div>
 
-                      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                          <div className="flex items-center gap-2 mb-2 text-slate-500">
-                            <User className="w-5 h-5" />
-                            <p className="text-sm font-medium">Total Respondents</p>
-                          </div>
-                          <p className="text-4xl font-bold text-slate-800">{stats.totalRespondents}</p>
-                      </div>
-                      
-                      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                          <div className="flex items-center gap-2 mb-2 text-slate-500">
-                             <Calendar className="w-5 h-5" />
-                             <p className="text-sm font-medium">Respondents by Day</p>
-                          </div>
-                          <div className="grid grid-cols-3 gap-2 text-center">
-                              <div className="bg-slate-50 rounded p-2">
-                                  <div className="text-xs text-slate-400 font-bold uppercase">Day 1</div>
-                                  <div className="font-bold text-slate-700">{stats.dailyRespondents[1]}</div>
-                              </div>
-                              <div className="bg-slate-50 rounded p-2">
-                                  <div className="text-xs text-slate-400 font-bold uppercase">Day 2</div>
-                                  <div className="font-bold text-slate-700">{stats.dailyRespondents[2]}</div>
-                              </div>
-                              <div className="bg-slate-50 rounded p-2">
-                                  <div className="text-xs text-slate-400 font-bold uppercase">Day 3</div>
-                                  <div className="font-bold text-slate-700">{stats.dailyRespondents[3]}</div>
-                              </div>
-                          </div>
-                      </div>
-
-                      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                          <div className="flex items-center gap-2 mb-2 text-slate-500">
-                            <MessageSquare className="w-5 h-5" />
-                            <p className="text-sm font-medium">Total Comments</p>
-                          </div>
-                          <p className="text-4xl font-bold text-blue-600">{(stats.comments.strengths?.length ?? 0) + (stats.comments.improvements?.length ?? 0)}</p>
-                      </div>
-                  </div>
-
-                  {/* Daily Ratings Breakdown */}
-                   <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                          <div className="flex items-center gap-2 mb-6 pb-2 border-b">
-                              <TrendingUp className="w-5 h-5 text-slate-400" />
-                              <h3 className="font-bold text-slate-800">Daily Rating Analysis</h3>
-                          </div>
-                          <div className="overflow-x-auto">
-                              <table className="w-full text-sm text-left">
-                                  <thead className="text-xs text-slate-500 uppercase bg-slate-50">
-                                      <tr>
-                                          <th className="px-6 py-3 rounded-l-lg">Category</th>
-                                          <th className="px-6 py-3 text-center">Day 1</th>
-                                          <th className="px-6 py-3 text-center">Day 2</th>
-                                          <th className="px-6 py-3 text-center rounded-r-lg">Day 3</th>
-                                      </tr>
-                                  </thead>
-                                  <tbody>
-                                      <tr className="bg-white border-b hover:bg-slate-50">
-                                          <th scope="row" className="px-6 py-4 font-medium text-slate-900 whitespace-nowrap">
-                                              Overall Daily Rating
-                                          </th>
-                                          <td className="px-6 py-4 text-center font-bold text-green-600">
-                                              {stats.dailyRatings[1].overall.toFixed(2)}
-                                          </td>
-                                          <td className="px-6 py-4 text-center font-bold text-green-600">
-                                              {stats.dailyRatings[2].overall.toFixed(2)}
-                                          </td>
-                                          <td className="px-6 py-4 text-center font-bold text-green-600">
-                                              {stats.dailyRatings[3].overall.toFixed(2)}
-                                          </td>
-                                      </tr>
-                                      <tr className="bg-white border-b hover:bg-slate-50">
-                                          <th scope="row" className="px-6 py-4 font-medium text-slate-900 whitespace-nowrap flex items-center gap-2">
-                                              <ClipboardCheck className="w-4 h-4 text-blue-500" /> Program Management Team
-                                          </th>
-                                          <td className="px-6 py-4 text-center text-slate-600">
-                                              {stats.dailyRatings[1].pmt.toFixed(2)}
-                                          </td>
-                                          <td className="px-6 py-4 text-center text-slate-600">
-                                              {stats.dailyRatings[2].pmt.toFixed(2)}
-                                          </td>
-                                          <td className="px-6 py-4 text-center text-slate-600">
-                                              {stats.dailyRatings[3].pmt.toFixed(2)}
-                                          </td>
-                                      </tr>
-                                      <tr className="bg-white border-b hover:bg-slate-50">
-                                          <th scope="row" className="px-6 py-4 font-medium text-slate-900 whitespace-nowrap flex items-center gap-2">
-                                              <Utensils className="w-4 h-4 text-orange-500" /> Meals
-                                          </th>
-                                          <td className="px-6 py-4 text-center text-slate-600">
-                                              {stats.dailyRatings[1].meals.toFixed(2)}
-                                          </td>
-                                          <td className="px-6 py-4 text-center text-slate-600">
-                                              {stats.dailyRatings[2].meals.toFixed(2)}
-                                          </td>
-                                          <td className="px-6 py-4 text-center text-slate-600">
-                                              {stats.dailyRatings[3].meals.toFixed(2)}
-                                          </td>
-                                      </tr>
-                                      <tr className="bg-white hover:bg-slate-50">
-                                          <th scope="row" className="px-6 py-4 font-medium text-slate-900 whitespace-nowrap flex items-center gap-2">
-                                              <MapPin className="w-4 h-4 text-red-500" /> Venue
-                                          </th>
-                                          <td className="px-6 py-4 text-center text-slate-600">
-                                              {stats.dailyRatings[1].venue.toFixed(2)}
-                                          </td>
-                                          <td className="px-6 py-4 text-center text-slate-600">
-                                              {stats.dailyRatings[2].venue.toFixed(2)}
-                                          </td>
-                                          <td className="px-6 py-4 text-center text-slate-600">
-                                              {stats.dailyRatings[3].venue.toFixed(2)}
-                                          </td>
-                                      </tr>
-                                  </tbody>
-                              </table>
-                          </div>
-                   </div>
-
-                  {/* Demographics */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                          <div className="flex items-center gap-2 mb-4 pb-2 border-b">
-                              <User className="w-5 h-5 text-slate-400" />
-                              <h3 className="font-bold text-slate-800">Respondents by Position</h3>
-                          </div>
-                          <div className="space-y-3">
-                              {Object.entries(stats.positionDistribution)
-                                .sort(([, countA], [, countB]) => Number(countB) - Number(countA))
-                                .map(([pos, count]) => (
-                                  <div key={pos} className="flex items-center justify-between text-sm">
-                                      <span className="text-slate-600 truncate mr-2">{pos}</span>
-                                      <div className="flex items-center gap-2">
-                                        <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden">
-                                            <div className="h-full bg-blue-500" style={{ width: `${(Number(count) / (stats.totalRespondents || 1)) * 100}%` }}></div>
-                                        </div>
-                                        <span className="font-bold w-6 text-right">{count}</span>
-                                      </div>
-                                  </div>
-                              ))}
-                          </div>
-                      </div>
-                      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                           <div className="flex items-center gap-2 mb-4 pb-2 border-b">
-                              <PieChart className="w-5 h-5 text-slate-400" />
-                              <h3 className="font-bold text-slate-800">Respondents by Sex</h3>
-                          </div>
-                          <div className="flex gap-4">
-                               {Object.entries(stats.sexDistribution).map(([sex, count]) => (
-                                   <div key={sex} className="flex-1 text-center p-4 bg-slate-50 rounded-lg">
-                                       <span className="block text-2xl font-bold text-slate-800">{count}</span>
-                                       <span className="text-sm text-slate-500">{sex}</span>
-                                   </div>
-                               ))}
-                          </div>
-                      </div>
-                  </div>
-
-                  {/* General Evaluation Analysis */}
-                  {renderAnalysisSection('Program Management Team', <ClipboardCheck className="w-5 h-5 text-slate-400" />, PROGRAM_QUESTIONS)}
-                  {renderAnalysisSection('Venue and Accommodation', <MapPin className="w-5 h-5 text-slate-400" />, VENUE_QUESTIONS)}
-                  {renderAnalysisSection('Meals', <Utensils className="w-5 h-5 text-slate-400" />, MEAL_QUESTIONS)}
-
-                  {/* Session Analysis */}
-                  <div className="space-y-6">
-                        <div className="flex items-center gap-2 mb-2">
-                            <BookOpen className="w-5 h-5 text-slate-400" />
-                            <h3 className="font-bold text-xl text-slate-800">Session Evaluation Breakdown</h3>
-                        </div>
-                        {SESSIONS.map(session => {
-                            const sessionStats = stats.sessionRatings[session.id] || {};
-                            // Calculate overall session average
-                            const totalSum = Object.values(sessionStats).reduce((acc: number, curr: any) => acc + (curr.sum as number), 0);
-                            const totalCount = Object.values(sessionStats).reduce((acc: number, curr: any) => acc + (curr.count as number), 0);
-                            const sessionAvg = totalCount ? totalSum / totalCount : 0;
-
-                            return (
-                                <div key={session.id} className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 break-inside-avoid">
-                                    <div className="flex justify-between items-start mb-4 border-b pb-4">
-                                        <div>
-                                            <span className="inline-block px-2 py-1 bg-slate-100 text-xs font-bold text-slate-600 rounded mb-1">Day {session.day}</span>
-                                            <h4 className="font-bold text-lg text-slate-800">{session.title}</h4>
-                                            <p className="text-sm text-slate-500">{session.speakers.map(s => s.name).join(', ')}</p>
-                                        </div>
-                                        <div className="text-right">
-                                            <div className="text-2xl font-bold text-green-600">{sessionAvg.toFixed(2)}</div>
-                                            <div className="text-xs text-slate-400">Average Rating</div>
-                                        </div>
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                                <div className="flex items-center gap-2 mb-2 text-slate-500">
+                                  <User className="w-5 h-5" />
+                                  <p className="text-sm font-medium">Total Respondents</p>
+                                </div>
+                                <p className="text-4xl font-bold text-slate-800">{stats.totalRespondents}</p>
+                            </div>
+                            
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                                <div className="flex items-center gap-2 mb-2 text-slate-500">
+                                   <Calendar className="w-5 h-5" />
+                                   <p className="text-sm font-medium">Respondents by Day</p>
+                                </div>
+                                <div className="grid grid-cols-3 gap-2 text-center">
+                                    <div className="bg-slate-50 rounded p-2">
+                                        <div className="text-xs text-slate-400 font-bold uppercase">Day 1</div>
+                                        <div className="font-bold text-slate-700">{stats.dailyRespondents[1]}</div>
                                     </div>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                        {SESSION_QUESTIONS.map(q => {
-                                            const qStat = sessionStats[q.id];
-                                            return (
-                                                <div key={q.id} className="bg-slate-50 p-3 rounded-lg">
-                                                    <p className="text-xs text-slate-500 mb-1 truncate" title={q.text}>{q.text}</p>
-                                                    <div className="flex justify-between items-center">
-                                                        <div className="flex gap-0.5">
-                                                            {[1,2,3,4].map(star => (
-                                                                <div key={star} className={`w-2 h-2 rounded-full ${star <= Math.round(qStat.avg) ? 'bg-green-500' : 'bg-slate-300'}`}></div>
-                                                            ))}
-                                                        </div>
-                                                        <span className="font-bold text-sm">{qStat.avg.toFixed(2)}</span>
-                                                    </div>
-                                                </div>
-                                            )
-                                        })}
+                                    <div className="bg-slate-50 rounded p-2">
+                                        <div className="text-xs text-slate-400 font-bold uppercase">Day 2</div>
+                                        <div className="font-bold text-slate-700">{stats.dailyRespondents[2]}</div>
+                                    </div>
+                                    <div className="bg-slate-50 rounded p-2">
+                                        <div className="text-xs text-slate-400 font-bold uppercase">Day 3</div>
+                                        <div className="font-bold text-slate-700">{stats.dailyRespondents[3]}</div>
                                     </div>
                                 </div>
-                            );
-                        })}
-                  </div>
+                            </div>
 
-                  {/* Qualitative Comments */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 print:break-before-page">
-                      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                           <div className="flex items-center gap-2 mb-4 pb-2 border-b border-green-100">
-                              <MessageSquare className="w-5 h-5 text-green-600" />
-                              <h3 className="font-bold text-slate-800">Significant Learnings / Strengths</h3>
-                          </div>
-                          <div className="h-96 overflow-y-auto pr-2 space-y-3">
-                              {stats.comments.strengths.filter(c => c.trim().length > 0).map((comment, idx) => (
-                                  <div key={idx} className="p-3 bg-green-50 rounded-lg text-sm text-slate-700 border-l-4 border-green-500">
-                                      "{comment}"
-                                  </div>
-                              ))}
-                              {stats.comments.strengths.filter(c => c.trim().length > 0).length === 0 && (
-                                  <p className="text-slate-400 text-center italic mt-10">No comments recorded.</p>
-                              )}
-                          </div>
-                      </div>
-                      
-                      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                           <div className="flex items-center gap-2 mb-4 pb-2 border-b border-orange-100">
-                              <MessageSquare className="w-5 h-5 text-orange-600" />
-                              <h3 className="font-bold text-slate-800">Areas for Improvement</h3>
-                          </div>
-                          <div className="h-96 overflow-y-auto pr-2 space-y-3">
-                              {stats.comments.improvements.filter(c => c.trim().length > 0).map((comment, idx) => (
-                                  <div key={idx} className="p-3 bg-orange-50 rounded-lg text-sm text-slate-700 border-l-4 border-orange-500">
-                                      "{comment}"
-                                  </div>
-                              ))}
-                              {stats.comments.improvements.filter(c => c.trim().length > 0).length === 0 && (
-                                  <p className="text-slate-400 text-center italic mt-10">No comments recorded.</p>
-                              )}
-                          </div>
-                      </div>
-                  </div>
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                                <div className="flex items-center gap-2 mb-2 text-slate-500">
+                                  <MessageSquare className="w-5 h-5" />
+                                  <p className="text-sm font-medium">Total Comments</p>
+                                </div>
+                                <p className="text-4xl font-bold text-blue-600">{(stats.comments.strengths?.length ?? 0) + (stats.comments.improvements?.length ?? 0)}</p>
+                            </div>
+                        </div>
+
+                        {/* Daily Ratings Breakdown */}
+                        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                                <div className="flex items-center gap-2 mb-6 pb-2 border-b">
+                                    <TrendingUp className="w-5 h-5 text-slate-400" />
+                                    <h3 className="font-bold text-slate-800">Daily Rating Analysis</h3>
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-sm text-left">
+                                        <thead className="text-xs text-slate-500 uppercase bg-slate-50">
+                                            <tr>
+                                                <th className="px-6 py-3 rounded-l-lg">Category</th>
+                                                <th className="px-6 py-3 text-center">Day 1</th>
+                                                <th className="px-6 py-3 text-center">Day 2</th>
+                                                <th className="px-6 py-3 text-center rounded-r-lg">Day 3</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr className="bg-white border-b hover:bg-slate-50">
+                                                <th scope="row" className="px-6 py-4 font-medium text-slate-900 whitespace-nowrap">
+                                                    Overall Daily Rating
+                                                </th>
+                                                <td className="px-6 py-4 text-center">
+                                                    <div className="font-bold text-green-600">{stats.dailyRatings[1].overall.toFixed(2)}</div>
+                                                    <div className="text-xs text-slate-500">{getRatingLabel(stats.dailyRatings[1].overall)}</div>
+                                                </td>
+                                                <td className="px-6 py-4 text-center">
+                                                    <div className="font-bold text-green-600">{stats.dailyRatings[2].overall.toFixed(2)}</div>
+                                                    <div className="text-xs text-slate-500">{getRatingLabel(stats.dailyRatings[2].overall)}</div>
+                                                </td>
+                                                <td className="px-6 py-4 text-center">
+                                                    <div className="font-bold text-green-600">{stats.dailyRatings[3].overall.toFixed(2)}</div>
+                                                    <div className="text-xs text-slate-500">{getRatingLabel(stats.dailyRatings[3].overall)}</div>
+                                                </td>
+                                            </tr>
+                                            <tr className="bg-white border-b hover:bg-slate-50">
+                                                <th scope="row" className="px-6 py-4 font-medium text-slate-900 whitespace-nowrap flex items-center gap-2">
+                                                    <ClipboardCheck className="w-4 h-4 text-blue-500" /> Program Management Team
+                                                </th>
+                                                <td className="px-6 py-4 text-center text-slate-600">
+                                                    {stats.dailyRatings[1].pmt.toFixed(2)}
+                                                </td>
+                                                <td className="px-6 py-4 text-center text-slate-600">
+                                                    {stats.dailyRatings[2].pmt.toFixed(2)}
+                                                </td>
+                                                <td className="px-6 py-4 text-center text-slate-600">
+                                                    {stats.dailyRatings[3].pmt.toFixed(2)}
+                                                </td>
+                                            </tr>
+                                            <tr className="bg-white border-b hover:bg-slate-50">
+                                                <th scope="row" className="px-6 py-4 font-medium text-slate-900 whitespace-nowrap flex items-center gap-2">
+                                                    <Utensils className="w-4 h-4 text-orange-500" /> Meals
+                                                </th>
+                                                <td className="px-6 py-4 text-center text-slate-600">
+                                                    {stats.dailyRatings[1].meals.toFixed(2)}
+                                                </td>
+                                                <td className="px-6 py-4 text-center text-slate-600">
+                                                    {stats.dailyRatings[2].meals.toFixed(2)}
+                                                </td>
+                                                <td className="px-6 py-4 text-center text-slate-600">
+                                                    {stats.dailyRatings[3].meals.toFixed(2)}
+                                                </td>
+                                            </tr>
+                                            <tr className="bg-white hover:bg-slate-50">
+                                                <th scope="row" className="px-6 py-4 font-medium text-slate-900 whitespace-nowrap flex items-center gap-2">
+                                                    <MapPin className="w-4 h-4 text-red-500" /> Venue
+                                                </th>
+                                                <td className="px-6 py-4 text-center text-slate-600">
+                                                    {stats.dailyRatings[1].venue.toFixed(2)}
+                                                </td>
+                                                <td className="px-6 py-4 text-center text-slate-600">
+                                                    {stats.dailyRatings[2].venue.toFixed(2)}
+                                                </td>
+                                                <td className="px-6 py-4 text-center text-slate-600">
+                                                    {stats.dailyRatings[3].venue.toFixed(2)}
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                        </div>
+
+                        {/* Demographics */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                                <div className="flex items-center gap-2 mb-4 pb-2 border-b">
+                                    <User className="w-5 h-5 text-slate-400" />
+                                    <h3 className="font-bold text-slate-800">Respondents by Position</h3>
+                                </div>
+                                <div className="space-y-3">
+                                    {Object.entries(stats.positionDistribution)
+                                      .sort(([, countA], [, countB]) => Number(countB) - Number(countA))
+                                      .map(([pos, count]) => (
+                                        <div key={pos} className="flex items-center justify-between text-sm">
+                                            <span className="text-slate-600 truncate mr-2">{pos}</span>
+                                            <div className="flex items-center gap-2">
+                                              <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden">
+                                                  <div className="h-full bg-blue-500" style={{ width: `${(Number(count) / (stats.totalRespondents || 1)) * 100}%` }}></div>
+                                              </div>
+                                              <span className="font-bold w-6 text-right">{count}</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                                 <div className="flex items-center gap-2 mb-4 pb-2 border-b">
+                                    <PieChart className="w-5 h-5 text-slate-400" />
+                                    <h3 className="font-bold text-slate-800">Respondents by Sex</h3>
+                                </div>
+                                <div className="flex gap-4">
+                                     {Object.entries(stats.sexDistribution).map(([sex, count]) => (
+                                         <div key={sex} className="flex-1 text-center p-4 bg-slate-50 rounded-lg">
+                                             <span className="block text-2xl font-bold text-slate-800">{count}</span>
+                                             <span className="text-sm text-slate-500">{sex}</span>
+                                         </div>
+                                     ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* General Evaluation Analysis */}
+                        {renderAnalysisSection('Program Management Team', <ClipboardCheck className="w-5 h-5 text-slate-400" />, PROGRAM_QUESTIONS)}
+                        {renderAnalysisSection('Venue and Accommodation', <MapPin className="w-5 h-5 text-slate-400" />, VENUE_QUESTIONS)}
+                        {renderAnalysisSection('Meals', <Utensils className="w-5 h-5 text-slate-400" />, MEAL_QUESTIONS)}
+
+                        {/* Session Analysis */}
+                        <div className="space-y-6">
+                              <div className="flex items-center gap-2 mb-2">
+                                  <BookOpen className="w-5 h-5 text-slate-400" />
+                                  <h3 className="font-bold text-xl text-slate-800">Session Evaluation Breakdown</h3>
+                              </div>
+                              {SESSIONS.map(session => {
+                                  const sessionStats = stats.sessionRatings[session.id] || {};
+                                  // Calculate overall session average
+                                  const values = Object.values(sessionStats) as { sum: number; count: number; avg: number }[];
+                                  const totalSum = values.reduce((acc, curr) => acc + curr.sum, 0);
+                                  const totalCount = values.reduce((acc, curr) => acc + curr.count, 0);
+                                  const sessionAvg = totalCount ? totalSum / totalCount : 0;
+
+                                  return (
+                                      <div key={session.id} className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 break-inside-avoid">
+                                          <div className="flex justify-between items-start mb-4 border-b pb-4">
+                                              <div>
+                                                  <span className="inline-block px-2 py-1 bg-slate-100 text-xs font-bold text-slate-600 rounded mb-1">Day {session.day}</span>
+                                                  <h4 className="font-bold text-lg text-slate-800">{session.title}</h4>
+                                                  <p className="text-sm text-slate-500">{session.speakers.map(s => s.name).join(', ')}</p>
+                                              </div>
+                                              <div className="text-right">
+                                                  <div className="text-2xl font-bold text-green-600">{sessionAvg.toFixed(2)}</div>
+                                                  <div className={`text-xs font-bold ${getRatingColorClass(sessionAvg)}`}>{getRatingLabel(sessionAvg)}</div>
+                                              </div>
+                                          </div>
+                                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                              {SESSION_QUESTIONS.map(q => {
+                                                  const qStat = sessionStats[q.id];
+                                                  // Safe check if qStat exists (it should initialized in processStats)
+                                                  const avg = qStat ? qStat.avg : 0;
+                                                  return (
+                                                      <div key={q.id} className="bg-slate-50 p-3 rounded-lg">
+                                                          <p className="text-xs text-slate-500 mb-1 truncate" title={q.text}>{q.text}</p>
+                                                          <div className="flex justify-between items-center">
+                                                              <div className="flex gap-0.5">
+                                                                  {[1,2,3,4,5].map(star => (
+                                                                      <div key={star} className={`w-2 h-2 rounded-full ${star <= Math.round(avg) ? 'bg-green-500' : 'bg-slate-300'}`}></div>
+                                                                  ))}
+                                                              </div>
+                                                              <span className="font-bold text-sm">{avg.toFixed(2)}</span>
+                                                          </div>
+                                                      </div>
+                                                  )
+                                              })}
+                                          </div>
+                                      </div>
+                                  );
+                              })}
+                        </div>
+
+                        {/* Qualitative Comments */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 print:break-before-page">
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                                 <div className="flex items-center gap-2 mb-4 pb-2 border-b border-green-100">
+                                    <MessageSquare className="w-5 h-5 text-green-600" />
+                                    <h3 className="font-bold text-slate-800">Significant Learnings / Strengths</h3>
+                                </div>
+                                <div className="h-96 overflow-y-auto pr-2 space-y-3">
+                                    {stats.comments.strengths.filter(c => c.trim().length > 0).map((comment, idx) => (
+                                        <div key={idx} className="p-3 bg-green-50 rounded-lg text-sm text-slate-700 border-l-4 border-green-500">
+                                            "{comment}"
+                                        </div>
+                                    ))}
+                                    {stats.comments.strengths.filter(c => c.trim().length > 0).length === 0 && (
+                                        <p className="text-slate-400 text-center italic mt-10">No comments recorded.</p>
+                                    )}
+                                </div>
+                            </div>
+                            
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                                 <div className="flex items-center gap-2 mb-4 pb-2 border-b border-orange-100">
+                                    <MessageSquare className="w-5 h-5 text-orange-600" />
+                                    <h3 className="font-bold text-slate-800">Areas for Improvement</h3>
+                                </div>
+                                <div className="h-96 overflow-y-auto pr-2 space-y-3">
+                                    {stats.comments.improvements.filter(c => c.trim().length > 0).map((comment, idx) => (
+                                        <div key={idx} className="p-3 bg-orange-50 rounded-lg text-sm text-slate-700 border-l-4 border-orange-500">
+                                            "{comment}"
+                                        </div>
+                                    ))}
+                                    {stats.comments.improvements.filter(c => c.trim().length > 0).length === 0 && (
+                                        <p className="text-slate-400 text-center italic mt-10">No comments recorded.</p>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                      </>
+                  )}
               </div>
           </div>
       );
@@ -879,9 +961,11 @@ const App: React.FC = () => {
                         <div className="p-4 bg-white">
                             {SESSION_QUESTIONS.map(q => (
                                 <div key={q.id} className="mb-6 last:mb-0">
-                                     <p className="text-slate-700 font-medium mb-3 text-sm">{q.text}</p>
+                                     <p className="text-slate-700 font-medium mb-3 text-sm">
+                                        {q.text} <span className="text-red-500">*</span>
+                                     </p>
                                      <div className="flex flex-wrap gap-2">
-                                        {[1, 2, 3, 4].map((val) => (
+                                        {[1, 2, 3, 4, 5].map((val) => (
                                             <button
                                                 key={val}
                                                 onClick={() => handleSessionRating(session.id, q.id, val)}
@@ -893,7 +977,7 @@ const App: React.FC = () => {
                                                     }
                                                 `}
                                             >
-                                                {val} - {val === 4 ? 'Strongly Agree' : val === 3 ? 'Agree' : val === 2 ? 'Disagree' : 'Strongly Disagree'}
+                                                {val} - {val === 5 ? 'Outstanding' : val === 4 ? 'Very Satisfactory' : val === 3 ? 'Satisfactory' : val === 2 ? 'Unsatisfactory' : 'Poor'}
                                             </button>
                                         ))}
                                      </div>
@@ -912,7 +996,8 @@ const App: React.FC = () => {
                     </button>
                     <button
                         onClick={() => setCurrentStep(3)}
-                        className="flex items-center gap-2 bg-green-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-green-700 transition-all"
+                        disabled={!isSessionValid()}
+                        className="flex items-center gap-2 bg-green-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-green-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         General Evaluation <ArrowRight className="w-4 h-4" />
                     </button>

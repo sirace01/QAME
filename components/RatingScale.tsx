@@ -9,10 +9,11 @@ interface RatingScaleProps {
 
 const RatingScale: React.FC<RatingScaleProps> = ({ label, value, onChange, required }) => {
   const options = [
-    { val: 4, label: 'Strongly Agree', color: 'bg-green-600', hover: 'hover:bg-green-700', text: 'text-green-700' },
-    { val: 3, label: 'Agree', color: 'bg-green-400', hover: 'hover:bg-green-500', text: 'text-green-600' },
-    { val: 2, label: 'Disagree', color: 'bg-orange-400', hover: 'hover:bg-orange-500', text: 'text-orange-600' },
-    { val: 1, label: 'Strongly Disagree', color: 'bg-red-500', hover: 'hover:bg-red-600', text: 'text-red-600' },
+    { val: 5, label: 'Outstanding', color: 'bg-green-700', hover: 'hover:bg-green-800', text: 'text-green-800' },
+    { val: 4, label: 'Very Satisfactory', color: 'bg-green-500', hover: 'hover:bg-green-600', text: 'text-green-600' },
+    { val: 3, label: 'Satisfactory', color: 'bg-blue-400', hover: 'hover:bg-blue-500', text: 'text-blue-600' },
+    { val: 2, label: 'Unsatisfactory', color: 'bg-orange-400', hover: 'hover:bg-orange-500', text: 'text-orange-600' },
+    { val: 1, label: 'Poor', color: 'bg-red-500', hover: 'hover:bg-red-600', text: 'text-red-600' },
   ];
 
   return (
@@ -27,7 +28,7 @@ const RatingScale: React.FC<RatingScaleProps> = ({ label, value, onChange, requi
             type="button"
             onClick={() => onChange(opt.val)}
             className={`
-              flex-1 min-w-[140px] py-3 px-4 rounded-md text-sm font-semibold transition-all duration-200 border
+              flex-1 min-w-[120px] py-3 px-3 rounded-md text-sm font-semibold transition-all duration-200 border
               ${value === opt.val 
                 ? `${opt.color} text-white border-transparent shadow-md transform scale-105` 
                 : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300 hover:bg-slate-50'
@@ -36,7 +37,7 @@ const RatingScale: React.FC<RatingScaleProps> = ({ label, value, onChange, requi
           >
             <div className="flex flex-col items-center">
               <span className="text-lg mb-1">{opt.val}</span>
-              <span>{opt.label}</span>
+              <span className="text-xs sm:text-sm whitespace-nowrap">{opt.label}</span>
             </div>
           </button>
         ))}

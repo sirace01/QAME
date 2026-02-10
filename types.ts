@@ -1,8 +1,9 @@
 export enum RatingValue {
-  StronglyDisagree = 1,
-  Disagree = 2,
-  Agree = 3,
-  StronglyAgree = 4
+  Poor = 1,
+  Unsatisfactory = 2,
+  Satisfactory = 3,
+  VerySatisfactory = 4,
+  Outstanding = 5
 }
 
 export interface Speaker {
