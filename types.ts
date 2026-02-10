@@ -40,10 +40,18 @@ export interface Question {
   text: string;
 }
 
+export interface DailyRatingStats {
+  overall: number;
+  pmt: number;
+  meals: number;
+  venue: number;
+}
+
 export interface AggregatedStats {
   totalRespondents: number;
   dailyRespondents: Record<number, number>;
   overallRating: number;
+  dailyRatings: Record<number, DailyRatingStats>;
   sexDistribution: Record<string, number>;
   positionDistribution: Record<string, number>;
   generalRatings: Record<string, { sum: number; count: number; avg: number }>;

@@ -57,6 +57,7 @@ const Layout: React.FC<LayoutProps> = ({ children, step, totalSteps }) => {
       <footer className="mt-auto py-8 text-center text-slate-400 text-sm">
         <p>© 2026 Schools Division Office of Quezon City. All rights reserved.</p>
         <p className="mt-1">Quality Assurance, Monitoring and Evaluation (QAME) System</p>
+        <p className="mt-1 font-semibold text-slate-500">created by RMCHS ICT TEAM</p>
       </footer>
     </div>
   );

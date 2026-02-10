@@ -11,7 +11,7 @@ import {
   SESSIONS, 
   POSITIONS 
 } from './constants';
-import { ArrowRight, Check, User, MessageSquare, ClipboardCheck, ArrowLeft, BookOpen, Loader2, Lock, BarChart3, PieChart, LogOut, Download, Utensils, MapPin, Calendar, Star } from 'lucide-react';
+import { ArrowRight, Check, User, MessageSquare, ClipboardCheck, ArrowLeft, BookOpen, Loader2, Lock, BarChart3, PieChart, LogOut, Download, Utensils, MapPin, Calendar, Star, TrendingUp } from 'lucide-react';
 import { supabase } from './supabaseClient';
 
 const INITIAL_STATE: EvaluationState = {
@@ -166,11 +166,28 @@ const App: React.FC = () => {
           totalRespondents: data.length,
           dailyRespondents: { 1: 0, 2: 0, 3: 0 },
           overallRating: 0,
+          dailyRatings: {
+            1: { overall: 0, pmt: 0, meals: 0, venue: 0 },
+            2: { overall: 0, pmt: 0, meals: 0, venue: 0 },
+            3: { overall: 0, pmt: 0, meals: 0, venue: 0 }
+          },
           sexDistribution: {},
           positionDistribution: {},
           generalRatings: {},
           sessionRatings: {},
           comments: { strengths: [], improvements: [] }
+      };
+
+      // Accumulators for Daily Ratings
+      const dailyAcc: Record<number, { 
+        pmt: { sum: number, count: number }, 
+        meals: { sum: number, count: number },
+        venue: { sum: number, count: number },
+        overall: { sum: number, count: number }
+      }> = {
+          1: { pmt: {sum:0, count:0}, meals: {sum:0, count:0}, venue: {sum:0, count:0}, overall: {sum:0, count:0} },
+          2: { pmt: {sum:0, count:0}, meals: {sum:0, count:0}, venue: {sum:0, count:0}, overall: {sum:0, count:0} },
+          3: { pmt: {sum:0, count:0}, meals: {sum:0, count:0}, venue: {sum:0, count:0}, overall: {sum:0, count:0} },
       };
 
       // Used for Overall Rating Calculation (Grand Mean)
@@ -215,6 +232,23 @@ const App: React.FC = () => {
                       // Add to Grand Mean
                       grandSum += numVal;
                       grandCount += 1;
+
+                      // Add to Daily Stats if day is valid
+                      if (day && dailyAcc[day]) {
+                          dailyAcc[day].overall.sum += numVal;
+                          dailyAcc[day].overall.count += 1;
+
+                          if (key.startsWith('pm')) {
+                              dailyAcc[day].pmt.sum += numVal;
+                              dailyAcc[day].pmt.count += 1;
+                          } else if (key.startsWith('m')) {
+                              dailyAcc[day].meals.sum += numVal;
+                              dailyAcc[day].meals.count += 1;
+                          } else if (key.startsWith('v')) {
+                              dailyAcc[day].venue.sum += numVal;
+                              dailyAcc[day].venue.count += 1;
+                          }
+                      }
                   }
               });
           }
@@ -232,6 +266,12 @@ const App: React.FC = () => {
                               // Add to Grand Mean
                               grandSum += numVal;
                               grandCount += 1;
+
+                              // Add to Daily Stats (Overall)
+                              if (day && dailyAcc[day]) {
+                                  dailyAcc[day].overall.sum += numVal;
+                                  dailyAcc[day].overall.count += 1;
+                              }
                           }
                       });
                   }
@@ -243,7 +283,7 @@ const App: React.FC = () => {
           if (entry.improvements) newStats.comments.improvements.push(entry.improvements);
       });
 
-      // Calculate Averages
+      // Calculate Averages for Standard Stats
       Object.keys(newStats.generalRatings).forEach(key => {
           const item = newStats.generalRatings[key];
           item.avg = item.count > 0 ? item.sum / item.count : 0;
@@ -254,6 +294,17 @@ const App: React.FC = () => {
               const item = newStats.sessionRatings[sessId][qId];
               item.avg = item.count > 0 ? item.sum / item.count : 0;
           });
+      });
+
+      // Calculate Daily Averages
+      [1, 2, 3].forEach(d => {
+          const acc = dailyAcc[d as 1|2|3];
+          newStats.dailyRatings[d as 1|2|3] = {
+              overall: acc.overall.count > 0 ? acc.overall.sum / acc.overall.count : 0,
+              pmt: acc.pmt.count > 0 ? acc.pmt.sum / acc.pmt.count : 0,
+              meals: acc.meals.count > 0 ? acc.meals.sum / acc.meals.count : 0,
+              venue: acc.venue.count > 0 ? acc.venue.sum / acc.venue.count : 0
+          };
       });
 
       // Calculate Overall Rating
@@ -373,7 +424,7 @@ const App: React.FC = () => {
                             <p className="text-sm font-medium">Overall Rating</p>
                           </div>
                           <p className="text-4xl font-bold">{stats.overallRating.toFixed(2)}</p>
-                          <p className="text-xs opacity-80 mt-1">Average across all criteria</p>
+                          <p className="text-xs opacity-80 mt-1">Grand Mean</p>
                       </div>
 
                       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
@@ -410,9 +461,87 @@ const App: React.FC = () => {
                             <MessageSquare className="w-5 h-5" />
                             <p className="text-sm font-medium">Total Comments</p>
                           </div>
-                          <p className="text-4xl font-bold text-blue-600">{stats.comments.strengths.length + stats.comments.improvements.length}</p>
+                          <p className="text-4xl font-bold text-blue-600">{(stats.comments.strengths?.length ?? 0) + (stats.comments.improvements?.length ?? 0)}</p>
                       </div>
                   </div>
+
+                  {/* Daily Ratings Breakdown */}
+                   <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                          <div className="flex items-center gap-2 mb-6 pb-2 border-b">
+                              <TrendingUp className="w-5 h-5 text-slate-400" />
+                              <h3 className="font-bold text-slate-800">Daily Rating Analysis</h3>
+                          </div>
+                          <div className="overflow-x-auto">
+                              <table className="w-full text-sm text-left">
+                                  <thead className="text-xs text-slate-500 uppercase bg-slate-50">
+                                      <tr>
+                                          <th className="px-6 py-3 rounded-l-lg">Category</th>
+                                          <th className="px-6 py-3 text-center">Day 1</th>
+                                          <th className="px-6 py-3 text-center">Day 2</th>
+                                          <th className="px-6 py-3 text-center rounded-r-lg">Day 3</th>
+                                      </tr>
+                                  </thead>
+                                  <tbody>
+                                      <tr className="bg-white border-b hover:bg-slate-50">
+                                          <th scope="row" className="px-6 py-4 font-medium text-slate-900 whitespace-nowrap">
+                                              Overall Daily Rating
+                                          </th>
+                                          <td className="px-6 py-4 text-center font-bold text-green-600">
+                                              {stats.dailyRatings[1].overall.toFixed(2)}
+                                          </td>
+                                          <td className="px-6 py-4 text-center font-bold text-green-600">
+                                              {stats.dailyRatings[2].overall.toFixed(2)}
+                                          </td>
+                                          <td className="px-6 py-4 text-center font-bold text-green-600">
+                                              {stats.dailyRatings[3].overall.toFixed(2)}
+                                          </td>
+                                      </tr>
+                                      <tr className="bg-white border-b hover:bg-slate-50">
+                                          <th scope="row" className="px-6 py-4 font-medium text-slate-900 whitespace-nowrap flex items-center gap-2">
+                                              <ClipboardCheck className="w-4 h-4 text-blue-500" /> Program Management Team
+                                          </th>
+                                          <td className="px-6 py-4 text-center text-slate-600">
+                                              {stats.dailyRatings[1].pmt.toFixed(2)}
+                                          </td>
+                                          <td className="px-6 py-4 text-center text-slate-600">
+                                              {stats.dailyRatings[2].pmt.toFixed(2)}
+                                          </td>
+                                          <td className="px-6 py-4 text-center text-slate-600">
+                                              {stats.dailyRatings[3].pmt.toFixed(2)}
+                                          </td>
+                                      </tr>
+                                      <tr className="bg-white border-b hover:bg-slate-50">
+                                          <th scope="row" className="px-6 py-4 font-medium text-slate-900 whitespace-nowrap flex items-center gap-2">
+                                              <Utensils className="w-4 h-4 text-orange-500" /> Meals
+                                          </th>
+                                          <td className="px-6 py-4 text-center text-slate-600">
+                                              {stats.dailyRatings[1].meals.toFixed(2)}
+                                          </td>
+                                          <td className="px-6 py-4 text-center text-slate-600">
+                                              {stats.dailyRatings[2].meals.toFixed(2)}
+                                          </td>
+                                          <td className="px-6 py-4 text-center text-slate-600">
+                                              {stats.dailyRatings[3].meals.toFixed(2)}
+                                          </td>
+                                      </tr>
+                                      <tr className="bg-white hover:bg-slate-50">
+                                          <th scope="row" className="px-6 py-4 font-medium text-slate-900 whitespace-nowrap flex items-center gap-2">
+                                              <MapPin className="w-4 h-4 text-red-500" /> Venue
+                                          </th>
+                                          <td className="px-6 py-4 text-center text-slate-600">
+                                              {stats.dailyRatings[1].venue.toFixed(2)}
+                                          </td>
+                                          <td className="px-6 py-4 text-center text-slate-600">
+                                              {stats.dailyRatings[2].venue.toFixed(2)}
+                                          </td>
+                                          <td className="px-6 py-4 text-center text-slate-600">
+                                              {stats.dailyRatings[3].venue.toFixed(2)}
+                                          </td>
+                                      </tr>
+                                  </tbody>
+                              </table>
+                          </div>
+                   </div>
 
                   {/* Demographics */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -705,7 +834,7 @@ const App: React.FC = () => {
                         value={formData.profile.school}
                         onChange={(e) => handleProfileChange('school', e.target.value)}
                         className="w-full px-4 py-3 rounded-lg border border-slate-200 focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all"
-                        placeholder="e.g. Quezon City HS"
+                        placeholder="Ramon Magsaysay (CUBAO) High School"
                     />
                 </div>
             </div>
