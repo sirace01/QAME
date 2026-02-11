@@ -11,7 +11,7 @@ import {
   SESSIONS, 
   POSITIONS 
 } from './constants';
-import { ArrowRight, Check, User, MessageSquare, ClipboardCheck, ArrowLeft, BookOpen, Loader2, Lock, BarChart3, PieChart, LogOut, Download, Utensils, MapPin, Calendar, Star, TrendingUp, AlertTriangle } from 'lucide-react';
+import { ArrowRight, Check, User, MessageSquare, ClipboardCheck, ArrowLeft, BookOpen, Loader2, Lock, BarChart3, PieChart, LogOut, Download, Utensils, MapPin, Calendar, Star, TrendingUp, Trash2, Eye, EyeOff } from 'lucide-react';
 import { supabase } from './supabaseClient';
 
 const INITIAL_STATE: EvaluationState = {
@@ -60,6 +60,7 @@ const App: React.FC = () => {
   
   // Admin State
   const [passwordInput, setPasswordInput] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [isLoadingResults, setIsLoadingResults] = useState(false);
   const [stats, setStats] = useState<AggregatedStats | null>(null);
@@ -190,6 +191,41 @@ const App: React.FC = () => {
       } finally {
           setIsLoadingResults(false);
       }
+  };
+
+  const handleWipeData = async () => {
+    if (!window.confirm("CRITICAL WARNING: You are about to PERMANENTLY DELETE ALL evaluation records.\n\nThis action cannot be undone. Are you absolutely sure you want to proceed?")) {
+        return;
+    }
+
+    const confirmation = window.prompt("To confirm, please type 'DELETE' in the box below:");
+    
+    if (confirmation !== 'DELETE') {
+        alert("Action cancelled. The confirmation code did not match.");
+        return;
+    }
+
+    setIsLoadingResults(true);
+
+    try {
+        // Delete all rows where email is not equal to a dummy value (effectively all rows)
+        // This is a workaround since Supabase requires a WHERE clause for deletes
+        const { error } = await supabase
+            .from('evaluations')
+            .delete()
+            .neq('email', 'system_placeholder_never_used');
+
+        if (error) throw error;
+
+        alert("Database successfully wiped. All responses have been deleted.");
+        // Refresh the dashboard (which will now be empty)
+        handleLogin();
+
+    } catch (err) {
+        console.error('Error wiping data:', err);
+        alert("Failed to wipe data. Please ensure your database permissions allow deletions.");
+        setIsLoadingResults(false);
+    }
   };
 
   const processStats = (data: any[]) => {
@@ -396,14 +432,23 @@ const App: React.FC = () => {
                 <p className="text-center text-slate-500 mb-6">Please enter the administration access code to view QAME results.</p>
                 
                 <div className="space-y-4">
-                    <input 
-                        type="password" 
-                        value={passwordInput}
-                        onChange={(e) => setPasswordInput(e.target.value)}
-                        className="w-full px-4 py-3 rounded-lg border border-slate-200 focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
-                        placeholder="Enter Access Code"
-                        onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
-                    />
+                    <div className="relative">
+                        <input 
+                            type={showPassword ? "text" : "password"}
+                            value={passwordInput}
+                            onChange={(e) => setPasswordInput(e.target.value)}
+                            className="w-full px-4 py-3 rounded-lg border border-slate-200 focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none pr-12"
+                            placeholder="Enter Access Code"
+                            onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+                        />
+                        <button
+                            type="button"
+                            onClick={() => setShowPassword(!showPassword)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 focus:outline-none"
+                        >
+                            {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                        </button>
+                    </div>
                     {loginError && <p className="text-red-500 text-sm text-center">{loginError}</p>}
                     
                     <button 
@@ -414,7 +459,12 @@ const App: React.FC = () => {
                         {isLoadingResults ? <Loader2 className="animate-spin w-4 h-4" /> : 'Access Results'}
                     </button>
                     <button 
-                        onClick={() => setCurrentStep(0)}
+                        onClick={() => {
+                            setCurrentStep(0);
+                            setLoginError('');
+                            setPasswordInput('');
+                            setShowPassword(false);
+                        }}
                         className="w-full text-slate-500 py-2 hover:text-slate-800 transition-all text-sm"
                     >
                         Return to Home
@@ -438,13 +488,22 @@ const App: React.FC = () => {
                       </div>
                       <div className="flex gap-2">
                         <button 
+                            onClick={handleWipeData}
+                            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 shadow-sm"
+                            title="Delete all responses"
+                            disabled={isLoadingResults}
+                        >
+                            {isLoadingResults ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                            Wipe Data
+                        </button>
+                        <button 
                             onClick={() => window.print()}
                             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 rounded-md hover:bg-slate-200"
                         >
                             <Download className="w-4 h-4" /> Print
                         </button>
                         <button 
-                            onClick={() => { setStats(null); setPasswordInput(''); setCurrentStep(0); }}
+                            onClick={() => { setStats(null); setPasswordInput(''); setShowPassword(false); setCurrentStep(0); }}
                             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-600 bg-red-50 rounded-md hover:bg-red-100"
                         >
                             <LogOut className="w-4 h-4" /> Logout
@@ -464,22 +523,8 @@ const App: React.FC = () => {
                               There are currently no submitted evaluations visible in the system. 
                           </p>
                           
-                          <div className="bg-yellow-50 text-yellow-800 p-6 rounded-lg text-sm text-left max-w-lg mx-auto mb-8 border border-yellow-200">
-                            <p className="font-bold mb-2 flex items-center gap-2 text-base">
-                                <AlertTriangle className="w-5 h-5" /> Data Not Showing?
-                            </p>
-                            <p className="mb-2">If you have verified that data exists in your Supabase database, the issue is likely due to <strong>Row Level Security (RLS)</strong>.</p>
-                            <p className="mb-2">Supabase tables hide data from API requests by default. To fix this:</p>
-                            <ol className="list-decimal pl-5 space-y-1 mb-2">
-                                <li>Go to your Supabase Dashboard &gt; Table Editor.</li>
-                                <li>Select the <code>evaluations</code> table.</li>
-                                <li>Click "Add RLS Policy" or edit existing policies.</li>
-                                <li>Create a policy to <strong>Enable SELECT for public/anon</strong>.</li>
-                            </ol>
-                          </div>
-
                           <button 
-                              onClick={() => { setStats(null); setPasswordInput(''); setCurrentStep(0); }}
+                              onClick={() => { setStats(null); setPasswordInput(''); setShowPassword(false); setCurrentStep(0); }}
                               className="text-green-600 font-semibold hover:text-green-800"
                           >
                               Return to Evaluation Form
